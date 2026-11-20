@@ -24,13 +24,10 @@ class AnwarEmbedding:
 
         sum_tfidf = np.sum(norm_tfidf_array, axis=1)
         sum_tfidf[np.where(sum_tfidf == 0)] = 1
-        context_vec = np.array(
-            norm_tfidf_array.dot(self.w2v.vectors) / sum_tfidf
-        )
+        context_vec = np.array(norm_tfidf_array.dot(self.w2v.vectors) / sum_tfidf)
         norm_context_vec = normalize(context_vec, norm="l2", axis=1)
         context_vec_dict = {
-            ex_idx: norm_context_vec[idx]
-            for idx, ex_idx in enumerate(df["ex_idx"])
+            ex_idx: norm_context_vec[idx] for idx, ex_idx in enumerate(df["ex_idx"])
         }
 
         vec_list = []
@@ -45,15 +42,11 @@ class AnwarEmbedding:
                 target_vec = np.zeros(300)
             context_vec = context_vec_dict[df_dict["ex_idx"]]
 
-            vec = np.concatenate([target_vec, context_vec], axis=0).reshape(
-                -1, 1
-            )
+            vec = np.concatenate([target_vec, context_vec], axis=0).reshape(-1, 1)
             vec_list.append(normalize(vec, norm="l2", axis=0).flatten())
 
         df_vec = (
-            df.reset_index(drop=True)
-            .reset_index()
-            .rename(columns={"index": "vec_id"})
+            df.reset_index(drop=True).reset_index().rename(columns={"index": "vec_id"})
         )
         vec_array = np.array(vec_list)
         return df_vec, vec_array

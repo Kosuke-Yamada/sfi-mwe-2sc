@@ -24,9 +24,7 @@ def main(args):
     df_test = pd.DataFrame(read_jsonl(args.input_test_file))
 
     if args.clustering_name == "arefyev":
-        embedding = ArefyevEmbedding(
-            "bert-base-uncased", args.batch_size, args.device
-        )
+        embedding = ArefyevEmbedding("bert-base-uncased", args.batch_size, args.device)
         clustering = ArefyevClustering()
 
     elif args.clustering_name == "anwar":

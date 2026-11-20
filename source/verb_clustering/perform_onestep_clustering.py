@@ -2,7 +2,6 @@ import argparse
 from pathlib import Path
 
 from sfimwe2sc.f_induc.clustering_onestep import OnestepClustering
-from sfimwe2sc.f_induc.clustering_twostep import TwostepClustering
 from sfimwe2sc.f_induc.embedding import read_embedding
 from sfimwe2sc.utils.data_utils import read_json, write_json, write_jsonl
 from sfimwe2sc.utils.model_utils import fix_seed

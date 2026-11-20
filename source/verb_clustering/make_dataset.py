@@ -56,12 +56,10 @@ def main(args: Namespace) -> None:
     random.shuffle(v1_list)
     random.shuffle(v2_list)
     dev_list = sorted(
-        v1_list[: -int(len(v1_list) * 0.8)]
-        + v2_list[: -int(len(v2_list) * 0.8)]
+        v1_list[: -int(len(v1_list) * 0.8)] + v2_list[: -int(len(v2_list) * 0.8)]
     )
     test_list = sorted(
-        v1_list[-int(len(v1_list) * 0.8) :]
-        + v2_list[-int(len(v2_list) * 0.8) :]
+        v1_list[-int(len(v1_list) * 0.8) :] + v2_list[-int(len(v2_list) * 0.8) :]
     )
 
     for split, verb_list in zip(["dev", "test"], [dev_list, test_list]):

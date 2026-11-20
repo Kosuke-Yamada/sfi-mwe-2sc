@@ -17,9 +17,7 @@ def ribeiro_collate_fn(batch):
         "batch_size": len(batch),
     }
     output_dict["input_ids"] = batch_to_ids([b["input_words"] for b in batch])
-    output_dict["target_tidx"] = torch.LongTensor(
-        [b["target_tidx"] for b in batch]
-    )
+    output_dict["target_tidx"] = torch.LongTensor([b["target_tidx"] for b in batch])
 
     for b in batch:
         output_dict["verb"].append(b["verb"])
@@ -56,9 +54,7 @@ class RibeiroDataset(Dataset):
 
 
 class RibeiroEmbedding:
-    def __init__(
-        self, elmo_options_file, elmo_weights_file, batch_size, device
-    ):
+    def __init__(self, elmo_options_file, elmo_weights_file, batch_size, device):
         self.model = Elmo(elmo_options_file, elmo_weights_file, 2, dropout=0)
         self.model = self.model.to(device).eval()
         self.batch_size = batch_size
@@ -87,9 +83,7 @@ class RibeiroEmbedding:
                 vec_list += list(embs.cpu().detach().numpy())
 
         df_vec = (
-            df.reset_index(drop=True)
-            .reset_index()
-            .rename(columns={"index": "vec_id"})
+            df.reset_index(drop=True).reset_index().rename(columns={"index": "vec_id"})
         )
         vec_array = np.array(vec_list)
         return df_vec, vec_array
@@ -112,8 +106,7 @@ class RibeiroClustering:
 
         i_list, j_list = np.nonzero(t_cossim_matrix)
         edge_list = [
-            (i, j, {"weight": t_cossim_matrix[i, j]})
-            for i, j in zip(i_list, j_list)
+            (i, j, {"weight": t_cossim_matrix[i, j]}) for i, j in zip(i_list, j_list)
         ]
 
         g = nx.Graph()
@@ -132,8 +125,7 @@ class RibeiroClustering:
                 cluster_dict[cc] = {"label": i}
 
         cluster_array = [
-            i + 1
-            for i in list(pd.DataFrame(cluster_dict).T.sort_index()["label"])
+            i + 1 for i in list(pd.DataFrame(cluster_dict).T.sort_index()["label"])
         ]
         return cluster_array
 

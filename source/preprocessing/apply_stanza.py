@@ -38,13 +38,9 @@ def main(args: Namespace) -> None:
         target = exemplar["target"]
         fe = exemplar["fe"]
 
-        text_norm = " ".join(
-            (re.sub("\s", " ", text).rstrip() + " ").split() + [""]
-        )
+        text_norm = " ".join((re.sub(r"\s", " ", text).rstrip() + " ").split() + [""])
         doc = nlp(text_norm)
-        text_widx = " ".join(
-            [w.text for s in doc.sentences for w in s.words] + [""]
-        )
+        text_widx = " ".join([w.text for s in doc.sentences for w in s.words] + [""])
 
         a1 = make_alignment(text, text_norm)
         a2 = make_alignment(text_norm, text_widx)

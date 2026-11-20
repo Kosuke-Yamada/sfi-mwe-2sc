@@ -30,9 +30,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "black>=26.10.1",
-    "flake8>=5.0.4",
-    "isort>=5.10.1",
+    "ruff>=0.14",
 ]
 
 [build-system]
@@ -41,3 +39,14 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 include = ["sfimwe2sc*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort
+select = ["E", "W", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sfimwe2sc"]
