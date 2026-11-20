@@ -88,10 +88,10 @@ if __name__ == "__main__":
     if args.clustering_name in ["arefyev", "anwar"]:
         for k in ["input_elmo_options_file", "input_elmo_weights_file"]:
             args.__delattr__(k)
-    if args.clustering_name == ["arefyev", "ribeiro"]:
+    if args.clustering_name in ["arefyev", "ribeiro"]:
         for k in ["input_w2v_file"]:
             args.__delattr__(k)
-    if args.clustering_name == ["anwar"]:
+    if args.clustering_name == "anwar":
         for k in ["batch_size", "device"]:
             args.__delattr__(k)
 

@@ -1,0 +1,43 @@
+[project]
+name = "sfimwe2sc"
+version = "0.1.0"
+description = "Semantic Frame Induction using Masked Word Embeddings and Two-Step Clustering"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Kosuke Yamada" }]
+# pandas==1.5.1 の wheel が Python 3.11 までのため上限を設定
+requires-python = ">=3.10,<3.12"
+dependencies = [
+    "nltk>=3.10.4",
+    "tqdm>=4.66.3",
+    "stanza>=1.12.2",
+    "spacy-alignments==0.8.6",
+    "pandas==1.5.1",
+    "numpy<2",  # pandas==1.5.1 は numpy 2 系と ABI 非互換
+    "scipy",
+    "scikit-learn",
+    "torch",
+    "transformers",
+    "fastcluster",
+    "pyclustering",
+    "ruamel.yaml",
+    # 以前の手法（Anwar / Ribeiro）の再現用
+    "gensim",
+    "networkx",
+    "chinese-whispers",
+    "h5py",
+]
+
+[dependency-groups]
+dev = [
+    "black>=26.10.1",
+    "flake8>=5.0.4",
+    "isort>=5.10.1",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sfimwe2sc*"]

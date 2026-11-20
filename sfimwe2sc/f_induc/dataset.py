@@ -1,4 +1,4 @@
-from tokenizations import get_alignments
+from spacy_alignments import get_alignments
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 

@@ -3,7 +3,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict, List, Union
 
-import tokenizations
+import spacy_alignments as tokenizations
 from stanza.pipeline.core import Pipeline
 from tqdm import tqdm
 

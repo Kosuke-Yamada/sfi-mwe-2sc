@@ -2,10 +2,11 @@ import networkx as nx
 import numpy as np
 import pandas as pd
 import torch
-from allennlp.modules.elmo import Elmo, batch_to_ids
 from chinese_whispers import aggregate_clusters, chinese_whispers
 from sklearn.metrics.pairwise import cosine_similarity
 from torch.utils.data import DataLoader, Dataset
+
+from sfimwe2sc.f_induc.elmo import Elmo, batch_to_ids
 
 
 def ribeiro_collate_fn(batch):
