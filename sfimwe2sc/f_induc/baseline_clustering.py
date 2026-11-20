@@ -2,6 +2,8 @@ import pandas as pd
 
 
 class OnecpvClustering:
+    """動詞ごとに 1 クラスタとするベースライン (one cluster per verb)。"""
+
     def step(self, df):
         df_list = []
         for i, verb in enumerate(sorted(set(df["verb"]))):

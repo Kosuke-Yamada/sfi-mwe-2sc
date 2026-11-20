@@ -4,16 +4,38 @@ from pathlib import Path
 import pandas as pd
 
 from sfimwe2sc.f_induc.previous_anwar import AnwarClustering, AnwarEmbedding
-from sfimwe2sc.f_induc.previous_arefyev import (
-    ArefyevClustering,
-    ArefyevEmbedding,
-)
-from sfimwe2sc.f_induc.previous_ribeiro import (
-    RibeiroClustering,
-    RibeiroEmbedding,
-)
+from sfimwe2sc.f_induc.previous_arefyev import ArefyevClustering, ArefyevEmbedding
+from sfimwe2sc.f_induc.previous_ribeiro import RibeiroClustering, RibeiroEmbedding
 from sfimwe2sc.utils.data_utils import read_jsonl, write_json, write_jsonl
 from sfimwe2sc.utils.model_utils import fix_seed
+
+# 各手法で使わない引数（params.json に残さないよう削除する）
+UNUSED_ARGS = {
+    "arefyev": ["input_w2v_file", "input_elmo_options_file", "input_elmo_weights_file"],
+    "anwar": [
+        "input_elmo_options_file",
+        "input_elmo_weights_file",
+        "batch_size",
+        "device",
+    ],
+    "ribeiro": ["input_w2v_file"],
+}
+
+
+def build_method(args):
+    if args.clustering_name == "arefyev":
+        embedding = ArefyevEmbedding("bert-base-uncased", args.batch_size, args.device)
+        return embedding, ArefyevClustering()
+    elif args.clustering_name == "anwar":
+        return AnwarEmbedding(args.input_w2v_file), AnwarClustering()
+    elif args.clustering_name == "ribeiro":
+        embedding = RibeiroEmbedding(
+            args.input_elmo_options_file,
+            args.input_elmo_weights_file,
+            args.batch_size,
+            args.device,
+        )
+        return embedding, RibeiroClustering()
 
 
 def main(args):
@@ -23,45 +45,17 @@ def main(args):
     df_dev = pd.DataFrame(read_jsonl(args.input_dev_file))
     df_test = pd.DataFrame(read_jsonl(args.input_test_file))
 
-    if args.clustering_name == "arefyev":
-        embedding = ArefyevEmbedding("bert-base-uncased", args.batch_size, args.device)
-        clustering = ArefyevClustering()
-
-    elif args.clustering_name == "anwar":
-        embedding = AnwarEmbedding(args.input_w2v_file)
-        clustering = AnwarClustering()
-
-    elif args.clustering_name == "ribeiro":
-        embedding = RibeiroEmbedding(
-            args.input_elmo_options_file,
-            args.input_elmo_weights_file,
-            args.batch_size,
-            args.device,
-        )
-        clustering = RibeiroClustering()
-
+    embedding, clustering = build_method(args)
     df_vec_dev, vec_array_dev = embedding.get_embedding(df_dev)
     df_vec_test, vec_array_test = embedding.get_embedding(df_test)
 
-    if args.clustering_name == "arefyev":
-        df_vec_dev = embedding.get_substitutions(df_vec_dev)
-        df_vec_test = embedding.get_substitutions(df_vec_test)
+    params = clustering.make_params(df_vec_dev, vec_array_dev)
+    df_clu_dev = clustering.step(df_vec_dev, vec_array_dev, params)
+    df_clu_test = clustering.step(df_vec_test, vec_array_test, params)
 
-    if args.clustering_name in ["arefyev", "anwar"]:
-        params = clustering.make_params(df_vec_dev, vec_array_dev)
-        df_clu_dev = clustering.step(df_vec_dev, vec_array_dev, params)
-        df_clu_test = clustering.step(df_vec_test, vec_array_test, params)
-    elif args.clustering_name == "ribeiro":
-        df_clu_dev = clustering.step(df_vec_dev, vec_array_dev)
-        df_clu_test = clustering.step(df_vec_test, vec_array_test)
-
+    write_jsonl(df_clu_dev.to_dict("records"), args.output_dir / "exemplars_dev.jsonl")
     write_jsonl(
-        df_clu_dev.to_dict("records"),
-        args.output_dir / "exemplars_dev.jsonl",
-    )
-    write_jsonl(
-        df_clu_test.to_dict("records"),
-        args.output_dir / "exemplars_test.jsonl",
+        df_clu_test.to_dict("records"), args.output_dir / "exemplars_test.jsonl"
     )
     write_json(vars(args), args.output_dir / "params.json")
 
@@ -83,15 +77,8 @@ if __name__ == "__main__":
     parser.add_argument("--device", type=str, default="cuda:0")
     args = parser.parse_args()
 
-    if args.clustering_name in ["arefyev", "anwar"]:
-        for k in ["input_elmo_options_file", "input_elmo_weights_file"]:
-            args.__delattr__(k)
-    if args.clustering_name in ["arefyev", "ribeiro"]:
-        for k in ["input_w2v_file"]:
-            args.__delattr__(k)
-    if args.clustering_name == "anwar":
-        for k in ["batch_size", "device"]:
-            args.__delattr__(k)
+    for k in UNUSED_ARGS[args.clustering_name]:
+        delattr(args, k)
 
     print(args)
     main(args)

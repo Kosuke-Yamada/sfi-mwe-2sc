@@ -1,13 +1,32 @@
 import argparse
+from functools import cache
+from itertools import product
 from pathlib import Path
-
-from tqdm import tqdm
 
 from sfimwe2sc.f_induc.clustering_twostep import TwostepClustering
 from sfimwe2sc.f_induc.embedding import read_embedding
-from sfimwe2sc.modules.score_clustering import calculate_bcubed
+from sfimwe2sc.f_induc.param_search import (
+    ALPHA_CANDIDATES,
+    find_best_layers,
+    search_best,
+)
+from sfimwe2sc.modules.score_clustering import bcubed_f1
 from sfimwe2sc.utils.data_utils import write_json
 from sfimwe2sc.utils.model_utils import fix_seed
+
+# "1st 用の埋め込み-2nd 用の埋め込み"。"wm" は 1st と 2nd で同じ alpha を用いる
+VEC_TYPES = [
+    "word",
+    "mask",
+    "wm",
+    "word-mask",
+    "mask-word",
+    "word-wm",
+    "mask-wm",
+    "wm-word",
+    "wm-mask",
+    "wm-wm",
+]
 
 
 def main(args):
@@ -16,100 +35,64 @@ def main(args):
 
     clustering = TwostepClustering(args.clustering_method1, args.clustering_method2)
 
-    if args.vec_type == "word":
-        vec_types = ["word"]
-    elif args.vec_type == "mask":
-        vec_types = ["mask"]
+    def cluster(df_vec, vec_array):
+        params = clustering.make_params(df_vec, vec_array)
+        return clustering.step(df_vec, vec_array, vec_array, params)
+
+    vec_types = (
+        [args.vec_type] if args.vec_type in ["word", "mask"] else ["word", "mask"]
+    )
+    best_vec_type2layer = find_best_layers(
+        args.input_dir, vec_types, args.layers, cluster
+    )
+
+    @cache
+    def load(alpha):
+        return read_embedding(args.input_dir, "dev", best_vec_type2layer, alpha)
+
+    if args.vec_type == "wm":
+
+        def score_fn(alpha):
+            return bcubed_f1(cluster(*load(alpha)))
+
+        best_alpha = search_best(ALPHA_CANDIDATES["wm"], score_fn, default=-1)
+        best_alpha1, best_alpha2 = best_alpha, best_alpha
     else:
-        vec_types = ["word", "mask"]
-
-    best_vec_type2layer = {}
-    for vec_type in tqdm(vec_types):
-        best_bcf = 0
-        for layer in tqdm(args.layers):
-            vec_type2layer = {vec_type: layer}
-            alpha = 0 if vec_type == "word" else 1
-            df_vec, vec_array = read_embedding(
-                args.input_dir, "dev", vec_type2layer, alpha
-            )
-            params = clustering.make_params(df_vec, vec_array)
-            df_output = clustering.step(df_vec, vec_array, vec_array, params)
-
-            true = df_output.groupby("frame")["ex_idx"].agg(list).tolist()
-            pred = df_output.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-            bcf = calculate_bcubed(true, pred)[2]
-            if best_bcf < bcf:
-                best_bcf = bcf
-                best_vec_type2layer[vec_type] = layer
-
-    if "wm" not in args.vec_type.split("-"):
-        if args.vec_type in ["word", "mask"]:
-            args.vec_type = f"{args.vec_type}-{args.vec_type}"
-        for i, vec_type in enumerate(args.vec_type.split("-")):
-            alpha = 0 if vec_type == "word" else 1
-            if i == 0:
-                best_alpha1 = alpha
-            else:
-                best_alpha2 = alpha
-    else:
-        if args.vec_type in ["wm"]:
-            best_bcf, best_alpha1, best_alpha2 = 0, -1, -1
-            for alpha in tqdm([i / 10 for i in range(11)]):
-                df_vec, vec_array = read_embedding(
-                    args.input_dir, "dev", best_vec_type2layer, alpha
-                )
-                params = clustering.make_params(df_vec, vec_array)
-                df_output = clustering.step(df_vec, vec_array, vec_array, params)
-
-                true = df_output.groupby("frame")["ex_idx"].agg(list).tolist()
-                pred = df_output.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-                bcf = calculate_bcubed(true, pred)[2]
-                if best_bcf < bcf:
-                    best_bcf = bcf
-                    best_alpha1, best_alpha2 = alpha, alpha
+        vec_type1, vec_type2 = (
+            [args.vec_type] * 2
+            if args.vec_type in ["word", "mask"]
+            else args.vec_type.split("-")
+        )
+        alphas1, alphas2 = ALPHA_CANDIDATES[vec_type1], ALPHA_CANDIDATES[vec_type2]
+        if "wm" not in (vec_type1, vec_type2):
+            best_alpha1, best_alpha2 = alphas1[0], alphas2[0]
         else:
-            for i, vec_type in enumerate(args.vec_type.split("-")):
-                if vec_type == "word":
-                    alphas = [0]
-                elif vec_type == "mask":
-                    alphas = [1]
-                elif vec_type == "wm":
-                    alphas = [i / 10 for i in range(11)]
 
-                if i == 0:
-                    alphas1 = alphas
-                else:
-                    alphas2 = alphas
+            @cache
+            def make_params(alpha1):
+                df_vec, vec_array1 = load(alpha1)
+                return clustering.make_params(df_vec, vec_array1)
 
-            best_bcf, best_alpha1, best_alpha2 = 0, -1, -1
-            for alpha1 in tqdm(alphas1):
-                df_vec, vec_array1 = read_embedding(
-                    args.input_dir, "dev", best_vec_type2layer, alpha1
+            def score_fn(alphas):
+                alpha1, alpha2 = alphas
+                df_vec, vec_array1 = load(alpha1)
+                _, vec_array2 = load(alpha2)
+                params = make_params(alpha1)
+                return bcubed_f1(
+                    clustering.step(df_vec, vec_array1, vec_array2, params)
                 )
-                params = clustering.make_params(df_vec, vec_array1)
-                for alpha2 in tqdm(alphas2):
-                    _, vec_array2 = read_embedding(
-                        args.input_dir, "dev", best_vec_type2layer, alpha2
-                    )
-                    df_output = clustering.step(df_vec, vec_array1, vec_array2, params)
 
-                    true = df_output.groupby("frame")["ex_idx"].agg(list).tolist()
-                    pred = (
-                        df_output.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-                    )
-                    bcf = calculate_bcubed(true, pred)[2]
-                    if best_bcf < bcf:
-                        best_bcf = bcf
-                        best_alpha1 = alpha1
-                        best_alpha2 = alpha2
+            best_alpha1, best_alpha2 = search_best(
+                list(product(alphas1, alphas2)), score_fn, default=(-1, -1)
+            )
 
     best_params = {
         "alpha1": best_alpha1,
         "alpha2": best_alpha2,
         "vec_type2layer": best_vec_type2layer,
+        "clustering_method1": args.clustering_method1,
+        "clustering_method2": args.clustering_method2,
     }
-    best_params["clustering_method1"] = args.clustering_method1
-    best_params["clustering_method2"] = args.clustering_method2
     write_json(best_params, args.output_dir / "best_params.json")
 
 
@@ -118,24 +101,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_dir", type=Path, required=True)
     parser.add_argument("--output_dir", type=Path, required=True)
 
-    parser.add_argument(
-        "--vec_type",
-        type=str,
-        choices=[
-            "word",
-            "mask",
-            "wm",
-            "word-mask",
-            "mask-word",
-            "word-wm",
-            "mask-wm",
-            "word-wm",
-            "mask-wm",
-            "wm-wm",
-        ],
-        required=False,
-    )
-
+    parser.add_argument("--vec_type", type=str, choices=VEC_TYPES, required=False)
     parser.add_argument("--layers", type=str, nargs="*")
 
     parser.add_argument(
