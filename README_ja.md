@@ -96,6 +96,7 @@ $ cd script/verb_clustering
    | 先行手法 | `perform_previous_clustering-{arefyev,anwar,ribeiro}.sh` |
 
    ハイパーパラメータ（層、α、クラスタリングの距離閾値）は開発セットで決定し、その値をテストセットに適用します。
+   なお、論文 Table 3 の 1 段階クラスタリングは、テストセットでも正解フレーム数でクラスタリングを打ち切った結果です。再現する場合は `perform_onestep_clustering.py` に `--oracle` を指定してください。
 
 4. **評価** — `evaluate_clustering-{ours,baseline,previous}.sh`
 

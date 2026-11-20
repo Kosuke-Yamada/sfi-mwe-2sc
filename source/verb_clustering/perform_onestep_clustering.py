@@ -28,7 +28,11 @@ def main(args):
     df_vec, vec_array = read_embedding(
         args.input_dir, "test", args.vec_type2layer, args.alpha
     )
-    df_clu_test = clustering.step(df_vec, vec_array, params)
+    if args.oracle:
+        # 論文 Table 3 の設定: テストセットでも正解フレーム数で打ち切る
+        df_clu_test = clustering.step_oracle(df_vec, vec_array)
+    else:
+        df_clu_test = clustering.step(df_vec, vec_array, params)
 
     write_jsonl(df_clu_dev.to_dict("records"), args.output_dir / "exemplars_dev.jsonl")
     write_jsonl(
@@ -52,6 +56,11 @@ if __name__ == "__main__":
         type=str,
         choices=["average", "ward"],
         required=False,
+    )
+    parser.add_argument(
+        "--oracle",
+        action="store_true",
+        help="テストセットのクラスタ数を正解フレーム数に合わせる（論文の設定）",
     )
     args = parser.parse_args()
     print(args)

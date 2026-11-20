@@ -96,6 +96,7 @@ $ cd script/verb_clustering
    | Previous methods | `perform_previous_clustering-{arefyev,anwar,ribeiro}.sh` |
 
    The hyperparameters (layer, α, and the distance threshold for clustering) are tuned on the development set and then applied to the test set.
+   Note that the one-step clustering results in Table 3 of the paper stop clustering at the gold number of frames on the test set as well. To reproduce them, pass `--oracle` to `perform_onestep_clustering.py`.
 
 4. **Evaluate** — `evaluate_clustering-{ours,baseline,previous}.sh`
 
