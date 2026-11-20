@@ -5,15 +5,14 @@ description = "Semantic Frame Induction using Masked Word Embeddings and Two-Ste
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Kosuke Yamada" }]
-# pandas==1.5.1 の wheel が Python 3.11 までのため上限を設定
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10"
 dependencies = [
     "nltk>=3.10.4",
     "tqdm>=4.66.3",
     "stanza>=1.12.2",
-    "spacy-alignments==0.8.6",
-    "pandas==1.5.1",
-    "numpy<2",  # pandas==1.5.1 は numpy 2 系と ABI 非互換
+    "spacy-alignments",
+    "pandas",
+    "numpy",
     "scipy",
     "scikit-learn",
     "torch",

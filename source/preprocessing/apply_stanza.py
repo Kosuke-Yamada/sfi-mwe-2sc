@@ -14,7 +14,8 @@ def make_alignment(
     text: Union[str, List[str]], new_text: Union[str, List[str]]
 ) -> Dict[int, int]:
     alignment = {}
-    alignments = tokenizations.get_alignments(text, new_text)
+    # spacy-alignments 0.9 以降は str を受け付けないため、文字のリストにして渡す
+    alignments = tokenizations.get_alignments(list(text), list(new_text))
     for idx, new_idx in enumerate(alignments[0] + [[]]):
         if len(new_idx) != 0:
             alignment[idx] = new_idx[0]
