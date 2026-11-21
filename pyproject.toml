@@ -1,0 +1,50 @@
+[project]
+name = "sfimwe2sc"
+version = "0.1.0"
+description = "Semantic Frame Induction using Masked Word Embeddings and Two-Step Clustering"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Kosuke Yamada" }]
+requires-python = ">=3.10"
+dependencies = [
+    "nltk>=3.10.4",
+    "tqdm>=4.66.3",
+    "stanza>=1.12.2",
+    "spacy-alignments",
+    "pandas",
+    "numpy",
+    "scipy",
+    "scikit-learn",
+    "torch",
+    "transformers",
+    "fastcluster",
+    "pyclustering",
+    # 以前の手法（Anwar / Ribeiro）の再現用
+    "gensim",
+    "networkx",
+    "chinese-whispers",
+    "h5py",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.14",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["sfimwe2sc*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+# E/W: pycodestyle, F: pyflakes, I: isort
+select = ["E", "W", "F", "I"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["sfimwe2sc"]

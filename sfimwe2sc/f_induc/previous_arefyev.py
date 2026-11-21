@@ -1,316 +1,153 @@
-from collections import Counter
-
 import nltk
-import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
-from fastcluster import linkage
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
-from scipy.cluster.hierarchy import fcluster
-from scipy.spatial.distance import pdist
 from sklearn.feature_extraction.text import TfidfVectorizer
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoConfig, AutoModel, AutoTokenizer, BertForMaskedLM
+from transformers import AutoTokenizer, BertForMaskedLM
 
-from sfimwe2sc.modules.score_clustering import calculate_bcubed
+from sfimwe2sc.f_induc.dataset import MODEL_INPUT_KEYS, collate_fn
+from sfimwe2sc.f_induc.embedding import assign_vec_id, run_inference
+from sfimwe2sc.f_induc.hierarchical import cut_linkage
+from sfimwe2sc.f_induc.model import BaseNet, select_target
+from sfimwe2sc.modules.score_clustering import bcubed_f1
+
+TFIDF_PREFIX = "tfidf_"
 
 
-class LemmatizationWithPOSTagger(object):
+def _wordnet_pos(treebank_tag):
+    if treebank_tag.startswith("J"):
+        return wordnet.ADJ
+    elif treebank_tag.startswith("V"):
+        return wordnet.VERB
+    elif treebank_tag.startswith("R"):
+        return wordnet.ADV
+    return wordnet.NOUN
+
+
+class Lemmatizer:
+    """品詞タグを考慮して単語列を見出し語化する。"""
+
     def __init__(self):
         self.lemmatizer = WordNetLemmatizer()
 
-    def _get_wordnet_pos(self, treebank_tag):
-        if treebank_tag.startswith("J"):
-            return wordnet.ADJ
-        elif treebank_tag.startswith("V"):
-            return wordnet.VERB
-        elif treebank_tag.startswith("N"):
-            return wordnet.NOUN
-        elif treebank_tag.startswith("R"):
-            return wordnet.ADV
-        else:
-            return wordnet.NOUN
-
-    def pos_tag(self, tokens):
-        pos_tokens = [nltk.pos_tag(token) for token in tokens]
-        pos_tokens = [
-            [
-                (
-                    word,
-                    self.lemmatizer.lemmatize(
-                        word, self._get_wordnet_pos(pos_tag)
-                    ),
-                    [pos_tag],
-                )
-                for (word, pos_tag) in pos
-            ]
-            for pos in pos_tokens
+    def __call__(self, words):
+        return [
+            self.lemmatizer.lemmatize(word, _wordnet_pos(tag))
+            for word, tag in nltk.pos_tag(words)
         ]
-        return pos_tokens
-
-
-def arefyev_collate_fn(batch):
-    output_dict = {
-        "verb": [],
-        "frame": [],
-        "ex_idx": [],
-        "batch_size": len(batch),
-    }
-    for ita in ["input_ids", "token_type_ids", "attention_mask"]:
-        output_dict[ita] = nn.utils.rnn.pad_sequence(
-            [torch.LongTensor(b[ita]) for b in batch], batch_first=True
-        )
-    output_dict["target_tidx"] = torch.LongTensor(
-        [b["target_tidx"] for b in batch]
-    )
-
-    for b in batch:
-        output_dict["verb"].append(b["verb"])
-        output_dict["frame"].append(b["frame"])
-        output_dict["ex_idx"].append(b["ex_idx"])
-    return output_dict
-
-
-class ArefyevDataset(Dataset):
-    def __init__(self, df, pretrained_model_name):
-        self.df = df
-        self.pretrained_model_name = pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-
-        self.lem = LemmatizationWithPOSTagger()
-        self._preprocess()
-
-    def __len__(self):
-        return len(self.out_inputs)
-
-    def __getitem__(self, idx):
-        return self.out_inputs[idx]
-
-    def _preprocess(self):
-        self.out_inputs = []
-        for df_dict in self.df.to_dict("records"):
-            text_widx_lem = [
-                o[1]
-                for o in self.lem.pos_tag([df_dict["text_widx"].split()])[0]
-            ]
-            inputs = self.tokenizer(text_widx_lem, is_split_into_words=True)
-
-            target_tidx = inputs.word_ids().index(df_dict["target_widx"])
-            inputs["target_tidx"] = target_tidx
-            inputs.update(
-                {
-                    "frame": df_dict["frame"],
-                    "verb": df_dict["verb"],
-                    "ex_idx": df_dict["ex_idx"],
-                }
-            )
-            self.out_inputs.append(inputs)
-
-
-class ArefyevMlmDataset(Dataset):
-    def __init__(self, df, pretrained_model_name):
-        self.df = df
-        self.pretrained_model_name = pretrained_model_name
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-
-        self._preprocess()
-
-    def __len__(self):
-        return len(self.out_inputs)
-
-    def __getitem__(self, idx):
-        return self.out_inputs[idx]
-
-    def _preprocess(self):
-        self.out_inputs = []
-        mlm_tokens = ["and", "then", self.tokenizer.mask_token]
-        for df_dict in self.df.to_dict("records"):
-            text_widx = df_dict["text_widx"].split()
-            text_widx_mlm = (
-                text_widx[: df_dict["target_widx"] + 1]
-                + mlm_tokens
-                + text_widx[df_dict["target_widx"] + 1 :]
-            )
-            inputs = self.tokenizer(text_widx_mlm, is_split_into_words=True)
-            target_tidx = inputs.word_ids().index(
-                df_dict["target_widx"] + len(mlm_tokens)
-            )
-            inputs["target_tidx"] = target_tidx
-            inputs.update(
-                {
-                    "frame": df_dict["frame"],
-                    "verb": df_dict["verb"],
-                    "ex_idx": df_dict["ex_idx"],
-                }
-            )
-            self.out_inputs.append(inputs)
 
 
 class ArefyevEmbedding:
+    """BERT の第 6 層の埋め込みと、MLM による置換語の TF-IDF を求める。"""
+
+    mlm_tokens = ["and", "then"]
+
     def __init__(self, pretrained_model_name, batch_size, device):
-        self.pretrained_model_name = pretrained_model_name
         self.batch_size = batch_size
         self.device = device
 
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-        self.config = AutoConfig.from_pretrained(
-            pretrained_model_name, output_hidden_states=True
-        )
-        self.model = AutoModel.from_pretrained(
-            pretrained_model_name, config=self.config
-        )
-        self.model = self.model.to(device).eval()
+        self.model = BaseNet(pretrained_model_name, "false", device, layer=6).eval()
         self.mlm = BertForMaskedLM.from_pretrained(pretrained_model_name)
         self.mlm = self.mlm.to(device).eval()
 
-        self.lem = LemmatizationWithPOSTagger()
-
-        self.layer = 6
+        self.lemmatize = Lemmatizer()
         self.topk = 40
 
+    def _tokenize(self, words, target_widx):
+        inputs = self.tokenizer(words, is_split_into_words=True)
+        inputs["target_tidx"] = inputs.word_ids().index(target_widx)
+        return inputs
+
     def get_embedding(self, df):
-        ds = ArefyevDataset(df, self.pretrained_model_name)
-        dl = DataLoader(
-            ds,
-            batch_size=self.batch_size,
-            collate_fn=arefyev_collate_fn,
-            shuffle=False,
-        )
+        """埋め込みと、置換語の TF-IDF 列 (`tfidf_*`) を追加した df を返す。"""
+        inputs = [
+            self._tokenize(self.lemmatize(text_widx.split()), target_widx)
+            for text_widx, target_widx in zip(df["text_widx"], df["target_widx"])
+        ]
+        vec_array = run_inference(inputs, self.model, self.batch_size, collate_fn)
+        return self._add_substitutions(assign_vec_id(df)), vec_array
 
-        vec_list = []
-        for batch in dl:
-            with torch.no_grad():
-                outputs = self.model(
-                    batch["input_ids"].to(self.device),
-                    batch["attention_mask"].to(self.device),
-                    batch["token_type_ids"].to(self.device),
-                )["hidden_states"][self.layer]
-                embs = outputs[
-                    torch.LongTensor(range(len(batch["target_tidx"]))),
-                    batch["target_tidx"],
-                ]
-                vec_list += list(embs.cpu().detach().numpy())
-
-        df_vec = (
-            df.reset_index(drop=True)
-            .reset_index()
-            .rename(columns={"index": "vec_id"})
-        )
-        vec_array = np.array(vec_list)
-        return df_vec, vec_array
-
-    def get_substitutions(self, df):
-        dl = DataLoader(
-            ArefyevMlmDataset(df, self.pretrained_model_name),
-            batch_size=self.batch_size,
-            collate_fn=arefyev_collate_fn,
-            shuffle=False,
-        )
+    def _predict_substitutions(self, df):
+        # 対象語の直後に "and then [MASK]" を挿入し、[MASK] の予測上位語を得る
+        mlm_tokens = self.mlm_tokens + [self.tokenizer.mask_token]
+        inputs = []
+        for text_widx, target_widx in zip(df["text_widx"], df["target_widx"]):
+            words = text_widx.split()
+            words = words[: target_widx + 1] + mlm_tokens + words[target_widx + 1 :]
+            inputs.append(self._tokenize(words, target_widx + len(mlm_tokens)))
 
         sub_list = []
+        dl = DataLoader(inputs, batch_size=self.batch_size, collate_fn=collate_fn)
         for batch in dl:
             with torch.no_grad():
-                outputs = self.mlm(
-                    input_ids=batch["input_ids"].to(self.device),
-                    attention_mask=batch["attention_mask"].to(self.device),
-                    token_type_ids=batch["token_type_ids"].to(self.device),
-                )
-            preds = outputs[0][
-                torch.LongTensor(range(len(batch["target_tidx"]))),
-                batch["target_tidx"],
-            ].topk(self.topk)
-            subs = self.tokenizer.convert_ids_to_tokens(
-                preds.indices.cpu().view(-1)
-            )
-            batch_sub_list = []
-            for i in range(0, len(subs), self.topk):
-                for sub in self.lem.pos_tag([subs[i : i + self.topk]]):
-                    batch_sub_list.append(" ".join([s[1] for s in sub]))
-            sub_list += batch_sub_list
+                logits = self.mlm(
+                    **{k: batch[k].to(self.device) for k in MODEL_INPUT_KEYS}
+                ).logits
+            topk_ids = select_target(logits, batch["target_tidx"]).topk(self.topk)
+            for ids in topk_ids.indices.cpu():
+                subs = self.tokenizer.convert_ids_to_tokens(ids)
+                sub_list.append(" ".join(self.lemmatize(subs)))
+        return sub_list
 
-        all_subs = sum([s.split() for s in sub_list], [])
-        self.tfidf = TfidfVectorizer(
-            max_features=len([w for w, _ in dict(Counter(all_subs)).items()])
-        )
-
+    def _add_substitutions(self, df):
+        sub_list = self._predict_substitutions(df)
+        n_vocab = len({s for sub in sub_list for s in sub.split()})
+        tfidf = TfidfVectorizer(max_features=n_vocab)
         df_tfidf = pd.DataFrame(
-            self.tfidf.fit_transform(sub_list).toarray(),
-            columns=["tfidf_" + n for n in self.tfidf.get_feature_names_out()],
+            tfidf.fit_transform(sub_list).toarray(),
+            columns=[TFIDF_PREFIX + n for n in tfidf.get_feature_names_out()],
         )
         return pd.merge(df, df_tfidf, left_index=True, right_index=True)
 
 
 class ArefyevClustering:
     def __init__(self):
+        # 元実装は metric="cosine" を指定していたが、実際には使われていない
+        # （sfimwe2sc.f_induc.hierarchical.make_linkage を参照）
         self.method = "average"
-        self.metric = "cosine"
-        self.criterion1 = "distance"
-        self.criterion2 = "maxclust"
-
-        self.regex = "tfidf_"
-
         self.min_th = 20
         self.max_th = 25
 
     def _clustering_1st(self, vec_array, params):
-        z = linkage(
-            pdist(vec_array),
-            method=self.method,
-            metric=self.metric,
-            preserve_input=False,
-        )
-        return fcluster(z, t=params["th"], criterion=self.criterion1)
+        return cut_linkage(vec_array, self.method, params["th"])
 
     def _clustering_2nd(self, df):
+        """1st の各クラスタを、置換語の TF-IDF で最大 2 つに分割する。"""
         df2_list = []
-        for frame_cluster_1st in tqdm(
-            list(sorted(set(df["frame_cluster_1st"])))
-        ):
+        for frame_cluster_1st in tqdm(sorted(set(df["frame_cluster_1st"]))):
             df_cluster = df[df["frame_cluster_1st"] == frame_cluster_1st].copy()
             if len(df_cluster) == 1:
                 df_cluster["frame_cluster_2nd"] = [1]
             else:
-                tfidf_array = df_cluster.filter(
-                    regex=f"^({self.regex})", axis=1
-                ).values
-                z = linkage(
-                    pdist(tfidf_array),
-                    method=self.method,
-                    metric=self.metric,
-                    preserve_input=False,
-                )
+                tfidf_array = df_cluster.filter(regex=f"^{TFIDF_PREFIX}").values
                 df_cluster["frame_cluster_2nd"] = list(
-                    fcluster(z, t=2, criterion=self.criterion2)
+                    cut_linkage(tfidf_array, self.method, 2, criterion="maxclust")
                 )
-            df2_list += df_cluster.to_dict("records")
+            df2_list.append(df_cluster[["frame_cluster_1st", "frame_cluster_2nd"]])
 
-        df2 = pd.DataFrame(df2_list)
-        df2 = df2.drop(
-            list(df2.filter(regex=self.regex, axis=1).columns), axis=1
-        )
-        df2["frame_cluster_1st_2nd"] = (
+        df2 = pd.concat(df2_list).reset_index(drop=True)
+        labels = (
             df2["frame_cluster_1st"]
             .astype(str)
             .str.cat(df2["frame_cluster_2nd"].astype(str), sep="")
         )
-        map_1to2 = {
-            c: i + 1 for i, c in enumerate(set(df2["frame_cluster_1st_2nd"]))
-        }
-        return df2["frame_cluster_1st_2nd"].map(map_1to2)
+        map_1to2 = {c: i + 1 for i, c in enumerate(set(labels))}
+        # NOTE: 返り値の index はクラスタ順に並べ替えた後の連番のため、呼び出し側で
+        # df に代入すると元の行とはずれた対応になる。元実装（論文の再現値）と
+        # 結果を一致させるため、この挙動をそのまま残している。
+        return labels.map(map_1to2)
 
     def make_params(self, df, vec_array):
+        """dev で BCubed F1 が最大になる距離の閾値を探す（同点なら大きい方）。"""
         best_bcf = 0
         for th in tqdm(range(self.min_th, self.max_th + 1)):
-            df["frame_cluster_1st"] = self._clustering_1st(
-                vec_array, {"th": th}
-            )
+            df["frame_cluster_1st"] = self._clustering_1st(vec_array, {"th": th})
             df["frame_cluster"] = self._clustering_2nd(df)
-            true = df.groupby("frame")["ex_idx"].agg(list).tolist()
-            pred = df.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-            bcf = calculate_bcubed(true, pred)[2]
+            bcf = bcubed_f1(df)
             if best_bcf <= bcf:
                 best_bcf = bcf
                 params = {"th": th}
@@ -319,5 +156,4 @@ class ArefyevClustering:
     def step(self, df, vec_array, params):
         df["frame_cluster_1st"] = self._clustering_1st(vec_array, params)
         df["frame_cluster"] = self._clustering_2nd(df)
-        df = df.filter(regex=f"^(?!{self.regex})", axis=1)
-        return df
+        return df.filter(regex=f"^(?!{TFIDF_PREFIX})", axis=1)

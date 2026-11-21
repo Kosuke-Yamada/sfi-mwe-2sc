@@ -2,14 +2,28 @@ import itertools
 from collections import defaultdict
 
 
+def to_clusters(df, column):
+    """`column` の値ごとに `ex_idx` をまとめたクラスタのリストを返す。"""
+    return df.groupby(column)["ex_idx"].agg(list).tolist()
+
+
+def true_and_pred_clusters(df):
+    """正解フレーム (`frame`) と推定クラスタ (`frame_cluster`) を返す。"""
+    return to_clusters(df, "frame"), to_clusters(df, "frame_cluster")
+
+
+def bcubed_f1(df):
+    return calculate_bcubed(*true_and_pred_clusters(df))[2]
+
+
 def calculate_clustering_scores(true, pred):
     bcp, bcr, bcf = calculate_bcubed(true, pred)
     pu, ipu, puf = calculate_purity(true, pred)
     return {
         "n_pred_clusters": len(pred),
         "n_true_clusters": len(true),
-        "n_pred_instances": len(sum(pred, [])),
-        "n_true_instances": len(sum(true, [])),
+        "n_pred_instances": sum(len(c) for c in pred),
+        "n_true_instances": sum(len(c) for c in true),
         "bcp": bcp,
         "bcr": bcr,
         "bcf": bcf,
@@ -43,27 +57,16 @@ def calculate_bcubed(true, pred):
     return avg_precision, avg_recall, f_score
 
 
+def _purity(clusters, references):
+    """各クラスタについて最も重なる参照クラスタとの共通要素数を合計し、割合を返す。"""
+    reference_sets = [set(r) for r in references]
+    n_matched = sum(max(len(set(c) & r) for r in reference_sets) for c in clusters)
+    return n_matched / sum(len(c) for c in clusters)
+
+
 def calculate_purity(true, pred):
-    purity_sum = 0
-    for pred_cluster in pred:
-        max_true_intersection = 0
-        for true_cluster in true:
-            intersection = len(set(true_cluster) & set(pred_cluster))
-            if intersection > max_true_intersection:
-                max_true_intersection = intersection
-        purity_sum += max_true_intersection
-    purity = purity_sum / sum(len(c) for c in pred)
-
-    inverse_purity_sum = 0
-    for true_cluster in true:
-        max_pred_intersection = 0
-        for pred_cluster in pred:
-            intersection = len(set(true_cluster) & set(pred_cluster))
-            if intersection > max_pred_intersection:
-                max_pred_intersection = intersection
-        inverse_purity_sum += max_pred_intersection
-    inverse_purity = inverse_purity_sum / sum(len(c) for c in true)
-
+    purity = _purity(pred, true)
+    inverse_purity = _purity(true, pred)
     f_score = (
         (2 * purity * inverse_purity) / (purity + inverse_purity)
         if (purity + inverse_purity) > 0

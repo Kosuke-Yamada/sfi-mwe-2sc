@@ -1,11 +1,14 @@
 import argparse
 from pathlib import Path
 
-from tqdm import tqdm
-
 from sfimwe2sc.f_induc.clustering_onestep import OnestepClustering
 from sfimwe2sc.f_induc.embedding import read_embedding
-from sfimwe2sc.modules.score_clustering import calculate_bcubed
+from sfimwe2sc.f_induc.param_search import (
+    ALPHA_CANDIDATES,
+    find_best_layers,
+    search_best,
+)
+from sfimwe2sc.modules.score_clustering import bcubed_f1
 from sfimwe2sc.utils.data_utils import write_json
 from sfimwe2sc.utils.model_utils import fix_seed
 
@@ -14,60 +17,35 @@ def main(args):
     fix_seed(0)
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.vec_type == "word":
-        vec_types = ["word"]
-        alphas = [0]
-    elif args.vec_type == "mask":
-        vec_types = ["mask"]
-        alphas = [1]
-    elif args.vec_type == "wm":
-        vec_types = ["word", "mask"]
-        alphas = [i / 10 for i in range(11)]
-
     clustering = OnestepClustering(args.clustering_method)
 
-    best_vec_type2layer = {}
-    for vec_type in tqdm(vec_types):
-        best_bcf = 0
-        for layer in tqdm(args.layers):
-            vec_type2layer = {vec_type: layer}
-            alpha = 0 if vec_type == "word" else 1
-            df_vec, vec_array = read_embedding(
-                args.input_dir, "dev", vec_type2layer, alpha
-            )
-            params = clustering.make_params(df_vec, vec_array)
-            df_output = clustering.step(df_vec, vec_array, params)
+    def cluster(df_vec, vec_array):
+        params = clustering.make_params(df_vec, vec_array)
+        return clustering.step(df_vec, vec_array, params)
 
-            true = df_output.groupby("frame")["ex_idx"].agg(list).tolist()
-            pred = df_output.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-            bcf = calculate_bcubed(true, pred)[2]
-            if best_bcf < bcf:
-                best_bcf = bcf
-                best_vec_type2layer[vec_type] = layer
+    vec_types = ["word", "mask"] if args.vec_type == "wm" else [args.vec_type]
+    best_vec_type2layer = find_best_layers(
+        args.input_dir, vec_types, args.layers, cluster
+    )
 
+    alphas = ALPHA_CANDIDATES[args.vec_type]
     if args.vec_type == "wm":
-        best_bcf = 0
-        for alpha in tqdm(alphas):
+
+        def score_fn(alpha):
             df_vec, vec_array = read_embedding(
                 args.input_dir, "dev", best_vec_type2layer, alpha
             )
-            params = clustering.make_params(df_vec, vec_array)
-            df_output = clustering.step(df_vec, vec_array, params)
+            return bcubed_f1(cluster(df_vec, vec_array))
 
-            true = df_output.groupby("frame")["ex_idx"].agg(list).tolist()
-            pred = df_output.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-            bcf = calculate_bcubed(true, pred)[2]
-            if best_bcf < bcf:
-                best_bcf = bcf
-                best_alpha = alpha
+        best_alpha = search_best(alphas, score_fn)
     else:
         best_alpha = alphas[0]
 
     best_params = {
         "alpha": best_alpha,
         "vec_type2layer": best_vec_type2layer,
+        "clustering_method": args.clustering_method,
     }
-    best_params["clustering_method"] = args.clustering_method
     write_json(best_params, args.output_dir / "best_params.json")
 
 

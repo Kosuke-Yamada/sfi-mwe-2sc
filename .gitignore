@@ -12,3 +12,4 @@ old/
 playground/
 dump/
 .vscode/
+.venv/

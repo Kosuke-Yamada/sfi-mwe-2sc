@@ -3,7 +3,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import Dict, List, Union
 
-import tokenizations
+import spacy_alignments as tokenizations
 from stanza.pipeline.core import Pipeline
 from tqdm import tqdm
 
@@ -14,7 +14,8 @@ def make_alignment(
     text: Union[str, List[str]], new_text: Union[str, List[str]]
 ) -> Dict[int, int]:
     alignment = {}
-    alignments = tokenizations.get_alignments(text, new_text)
+    # spacy-alignments 0.9 以降は str を受け付けないため、文字のリストにして渡す
+    alignments = tokenizations.get_alignments(list(text), list(new_text))
     for idx, new_idx in enumerate(alignments[0] + [[]]):
         if len(new_idx) != 0:
             alignment[idx] = new_idx[0]
@@ -38,13 +39,9 @@ def main(args: Namespace) -> None:
         target = exemplar["target"]
         fe = exemplar["fe"]
 
-        text_norm = " ".join(
-            (re.sub("\s", " ", text).rstrip() + " ").split() + [""]
-        )
+        text_norm = " ".join((re.sub(r"\s", " ", text).rstrip() + " ").split() + [""])
         doc = nlp(text_norm)
-        text_widx = " ".join(
-            [w.text for s in doc.sentences for w in s.words] + [""]
-        )
+        text_widx = " ".join([w.text for s in doc.sentences for w in s.words] + [""])
 
         a1 = make_alignment(text, text_norm)
         a2 = make_alignment(text_norm, text_widx)
@@ -70,5 +67,4 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", type=Path, required=True)
     args = parser.parse_args()
     print(args)
-    main(args)
     main(args)

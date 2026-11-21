@@ -26,7 +26,6 @@ for vec_type in ${vec_types[@]}; do
         --output_dir ${data_dir}/best_params_twostep_clustering/${d1}/${d2} \
         --vec_type ${vec_type} \
         --layers ${layers[@]} \
-        --clustering_name ${clustering_name} \
         --clustering_method1 ${clustering_method1} \
         --clustering_method2 ${clustering_method2}
 done

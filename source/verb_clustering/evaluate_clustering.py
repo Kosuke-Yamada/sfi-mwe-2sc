@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pandas as pd
 
-from sfimwe2sc.modules.score_clustering import calculate_clustering_scores
+from sfimwe2sc.modules.score_clustering import (
+    calculate_clustering_scores,
+    true_and_pred_clusters,
+)
 from sfimwe2sc.utils.data_utils import read_json, read_jsonl, write_json
 
 
@@ -13,9 +16,7 @@ def main(args: Namespace) -> None:
     df = pd.DataFrame(read_jsonl(args.input_file))
     params = read_json(args.input_params_file)
 
-    true = df.groupby("frame")["ex_idx"].agg(list).tolist()
-    pred = df.groupby("frame_cluster")["ex_idx"].agg(list).tolist()
-    metrics = calculate_clustering_scores(true, pred)
+    metrics = calculate_clustering_scores(*true_and_pred_clusters(df))
 
     if "twostep" in str(args.input_file):
         metrics.update(

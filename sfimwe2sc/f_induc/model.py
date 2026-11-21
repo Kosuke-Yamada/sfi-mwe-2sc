@@ -3,10 +3,17 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoConfig, AutoModel
 
+from sfimwe2sc.f_induc.dataset import MODEL_INPUT_KEYS
+
+
+def select_target(hidden_states, target_tidx):
+    """各系列の `target_tidx` 番目のベクトルを取り出す。"""
+    return hidden_states[torch.arange(len(target_tidx)), target_tidx]
+
 
 class BaseNet(nn.Module):
     def __init__(self, pretrained_model_name, normalization, device, layer=-1):
-        super(BaseNet, self).__init__()
+        super().__init__()
         config = AutoConfig.from_pretrained(
             pretrained_model_name, output_hidden_states=True
         )
@@ -19,21 +26,11 @@ class BaseNet(nn.Module):
         self.device = device
 
     def forward(self, inputs):
-        if "token_type_ids" in inputs:
-            hidden_states = self.pretrained_model(
-                input_ids=inputs["input_ids"].to(self.device),
-                attention_mask=inputs["attention_mask"].to(self.device),
-                token_type_ids=inputs["token_type_ids"].to(self.device),
-            )["hidden_states"][self.layer]
-        else:
-            hidden_states = self.pretrained_model(
-                input_ids=inputs["input_ids"].to(self.device),
-                attention_mask=inputs["attention_mask"].to(self.device),
-            )["hidden_states"][self.layer]
-        embeddings = hidden_states[
-            torch.LongTensor(range(len(inputs["target_tidx"]))),
-            inputs["target_tidx"],
-        ]
+        model_inputs = {
+            k: inputs[k].to(self.device) for k in MODEL_INPUT_KEYS if k in inputs
+        }
+        hidden_states = self.pretrained_model(**model_inputs)["hidden_states"]
+        embeddings = select_target(hidden_states[self.layer], inputs["target_tidx"])
         if self.normalization == "true":
             embeddings = F.normalize(embeddings, p=2, dim=-1)
         return embeddings

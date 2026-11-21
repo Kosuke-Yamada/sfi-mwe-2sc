@@ -24,7 +24,7 @@ def make_exemplars(fn_exemplars: List[Any]) -> List[Dict[str, Any]]:
             exemplar_dict["text"] = exemplar.text
             exemplars.append(exemplar_dict)
             ex_idx += 1
-        except:
+        except Exception:
             continue
     return exemplars
 
