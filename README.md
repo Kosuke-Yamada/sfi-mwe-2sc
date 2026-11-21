@@ -15,7 +15,7 @@ The task is to group verb usages in FrameNet example sentences according to the 
 
 ## Requirements
 
-- Python 3.10 or later
+- Python 3.11 or later
 - [uv](https://docs.astral.sh/uv/)
 - A CUDA-capable GPU is recommended for extracting embeddings (CPU also works with `--device cpu`).
 

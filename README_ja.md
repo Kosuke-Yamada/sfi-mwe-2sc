@@ -15,7 +15,7 @@ FrameNet の用例文中の動詞を、それが喚起する意味フレーム�
 
 ## 動作環境
 
-- Python 3.10 以上
+- Python 3.11 以上
 - [uv](https://docs.astral.sh/uv/)
 - 埋め込みの獲得には CUDA 対応 GPU を推奨します（`--device cpu` で CPU でも動作します）。
 
